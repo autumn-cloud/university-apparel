@@ -12,6 +12,39 @@ import AdminProducts from "./components/AdminProducts";
 import { CartItem, Product, Order } from "./types/product";
 import { Toaster } from "./components/ui/sonner";
 import { toast } from "sonner@2.0.3";
+import { api } from "./lib/api";
+import { products as fallbackProducts } from "./data/products";
+import { resolveProductImage } from "./data/productAssets";
+
+const mapApiProduct = (p: any): Product => {
+  if (!p) {
+    return {
+      id: crypto.randomUUID(),
+      name: "Unknown Product",
+      description: "",
+      price: 0,
+      category: "N/A",
+      department: "N/A",
+      image: "",
+      sizes: [],
+      inStock: true,
+      stockCount: 0,
+    };
+  }
+
+  return {
+    id: String(p.id ?? p.legacy_id ?? crypto.randomUUID()),
+    name: p.name ?? "Unnamed Product",
+    description: p.description ?? "",
+    price: Number(p.price ?? p.unitPrice ?? 0),
+    category: p.category ?? "",
+    department: p.department ?? "",
+    image: resolveProductImage(p.image_url ?? p.image),
+    sizes: Array.isArray(p.sizes) ? p.sizes : [],
+    inStock: Boolean(p.in_stock ?? p.inStock ?? true),
+    stockCount: Number(p.stock_count ?? p.stockCount ?? 0),
+  };
+};
 
 export default function App() {
   const [currentView, setCurrentView] = useState<string>("home");
@@ -22,51 +55,49 @@ export default function App() {
   const [isAdminAuthenticated, setIsAdminAuthenticated] = useState(false);
   const [adminEmail, setAdminEmail] = useState("");
   const [productsState, setProductsState] = useState<Product[]>([]);
+  const [productsLoading, setProductsLoading] = useState(true);
+  const [ordersLoading, setOrdersLoading] = useState(false);
+  const [apiError, setApiError] = useState<string | null>(null);
 
   // Load orders from localStorage so admin can review across sessions
   useEffect(() => {
-    const raw = localStorage.getItem("mmsu_orders");
-    if (raw) {
+    const loadProducts = async () => {
       try {
-        const parsed: Order[] = JSON.parse(raw);
-        // revive date fields
-        const revived = parsed.map((o) => ({
-          ...o,
-          createdAt: new Date(o.createdAt),
-          updatedAt: new Date(o.updatedAt),
-        }));
-        setOrders(revived);
-      } catch (_) {
-        // ignore parse errors
+        const data = await api.getProducts();
+        setProductsState(data.map(mapApiProduct));
+      } catch (error) {
+        console.error("Failed to load products from API", error);
+        setApiError("Unable to reach the API. Showing bundled catalog instead.");
+        setProductsState(fallbackProducts);
+      } finally {
+        setProductsLoading(false);
       }
-    }
+    };
+
+    loadProducts();
   }, []);
 
-  // Load products from localStorage or defaults
-  useEffect(() => {
-    const raw = localStorage.getItem("mmsu_products");
-    if (raw) {
-      try {
-        const parsed: Product[] = JSON.parse(raw);
-        setProductsState(parsed);
-        return;
-      } catch (_) {
-        // ignore parse errors
-      }
+  const refreshOrders = async (email?: string) => {
+    setOrdersLoading(true);
+    try {
+      const data = await api.getOrders(email);
+      const mapped = data.map((order: any) => ({
+        ...order,
+        createdAt: new Date(order.createdAt ?? order.created_at ?? new Date()),
+        updatedAt: new Date(order.updatedAt ?? order.updated_at ?? new Date()),
+        items: (order.items ?? []).map((item: any) => ({
+          product: mapApiProduct(item.product),
+          size: item.size,
+          quantity: item.quantity,
+        })),
+      }));
+      setOrders(mapped);
+    } catch (error) {
+      console.error("Failed to load orders", error);
+      toast.error("Unable to load orders from the server");
+    } finally {
+      setOrdersLoading(false);
     }
-    import("./data/products").then((mod) => {
-      setProductsState(mod.products);
-    });
-  }, []);
-
-  const persistOrders = (next: Order[]) => {
-    setOrders(next);
-    localStorage.setItem("mmsu_orders", JSON.stringify(next));
-  };
-
-  const persistProducts = (next: Product[]) => {
-    setProductsState(next);
-    localStorage.setItem("mmsu_products", JSON.stringify(next));
   };
 
   const handleLogin = (email: string, password: string) => {
@@ -76,6 +107,7 @@ export default function App() {
       setUserEmail(email);
       toast.success(`Welcome back, ${email.split("@")[0]}!`);
       setCurrentView("shop");
+      refreshOrders(email);
     } else {
       toast.error("Please use a valid email address");
     }
@@ -126,17 +158,35 @@ export default function App() {
     setCurrentView("reservation");
   };
 
-  const handleSubmitOrder = (order: Order) => {
-    const next = [order, ...orders];
-    persistOrders(next);
-    setCartItems([]);
-    toast.success(
-      `Reservation submitted successfully! Order #${order.orderNumber}`,
-      {
-        description: "You will receive a confirmation email within 24 hours."
-      }
-    );
-    setCurrentView("orders");
+  const handleSubmitOrder = async (order: Order) => {
+    try {
+      const saved = await api.createOrder(order, cartItems);
+      const normalized: Order = {
+        ...order,
+        id: saved.id ?? order.id,
+        orderNumber: saved.orderNumber ?? order.orderNumber,
+        createdAt: new Date(saved.createdAt ?? new Date()),
+        updatedAt: new Date(saved.updatedAt ?? new Date()),
+        items: (saved.items ?? []).map((item: any) => ({
+          product: mapApiProduct(item.product),
+          size: item.size,
+          quantity: item.quantity,
+        })),
+      };
+      setOrders([normalized, ...orders]);
+      setCartItems([]);
+      toast.success(
+        `Reservation submitted successfully! Order #${normalized.orderNumber}`,
+        {
+          description: "You will receive a confirmation email within 24 hours."
+        }
+      );
+      setCurrentView("orders");
+      await refreshOrders(order.email);
+    } catch (error) {
+      console.error(error);
+      toast.error("Failed to submit reservation. Please try again.");
+    }
   };
 
   const handleCancelReservation = () => {
@@ -149,15 +199,15 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  const handleAdminLogin = (email: string, password: string) => {
-    // Demo-only auth: simple check
-    const isValid = email.length > 5 && password === "admin123";
-    if (isValid) {
+  const handleAdminLogin = async (email: string, password: string) => {
+    try {
+      await api.adminLogin(email, password);
       setIsAdminAuthenticated(true);
       setAdminEmail(email);
       setCurrentView("admin-dashboard");
       toast.success("Admin logged in");
-    } else {
+      await refreshOrders();
+    } catch (error) {
       toast.error("Invalid admin credentials");
     }
   };
@@ -168,30 +218,66 @@ export default function App() {
     setCurrentView("home");
   };
 
-  const handleUpdateOrderStatus = (orderId: string, status: Order["status"]) => {
-    const next = orders.map((o) =>
-      o.id === orderId ? { ...o, status, updatedAt: new Date() } : o
-    );
-    persistOrders(next);
-    toast.success(`Order updated to ${status}`);
+  const handleUpdateOrderStatus = async (orderId: string, status: Order["status"]) => {
+    try {
+      await api.updateOrderStatus(Number(orderId), status);
+      const next = orders.map((o) =>
+        o.id === orderId ? { ...o, status, updatedAt: new Date() } : o
+      );
+      setOrders(next);
+      toast.success(`Order updated to ${status}`);
+    } catch (error) {
+      toast.error("Failed to update order status");
+    }
   };
 
-  const handleSaveProduct = (productId: string, updates: Partial<Product>) => {
-    const next = productsState.map((p) => (p.id === productId ? { ...p, ...updates } : p));
-    persistProducts(next);
-    toast.success("Product updated");
+  const handleSaveProduct = async (productId: string, updates: Partial<Product>) => {
+    try {
+      await api.updateProduct(Number(productId), {
+        ...updates,
+        image_url: updates.image,
+        in_stock: updates.inStock,
+        stock_count: updates.stockCount,
+      });
+      setProductsState((prev) =>
+        prev.map((p) => (p.id === productId ? { ...p, ...updates } : p))
+      );
+      toast.success("Product updated");
+    } catch (error) {
+      toast.error("Failed to update product");
+    }
   };
 
-  const handleAddProduct = (newProduct: Product) => {
-    const next = [newProduct, ...productsState];
-    persistProducts(next);
-    toast.success("Product added");
+  const handleAddProduct = async (newProduct: Product) => {
+    try {
+      const created = await api.addProduct({
+        legacy_id: newProduct.id,
+        name: newProduct.name,
+        description: newProduct.description,
+        price: newProduct.price,
+        category: newProduct.category,
+        department: newProduct.department,
+        image_url: newProduct.image,
+        in_stock: newProduct.inStock,
+        stock_count: newProduct.stockCount,
+        sizes: newProduct.sizes,
+      });
+      const normalized = mapApiProduct(created);
+      setProductsState((prev) => [normalized, ...prev]);
+      toast.success("Product added");
+    } catch (error) {
+      toast.error("Failed to add product");
+    }
   };
 
-  const handleDeleteProduct = (productId: string) => {
-    const next = productsState.filter((p) => p.id !== productId);
-    persistProducts(next);
-    toast.success("Product deleted");
+  const handleDeleteProduct = async (productId: string) => {
+    try {
+      await api.deleteProduct(Number(productId));
+      setProductsState((prev) => prev.filter((p) => p.id !== productId));
+      toast.success("Product deleted");
+    } catch (error) {
+      toast.error("Failed to delete product");
+    }
   };
 
   return (
@@ -209,7 +295,11 @@ export default function App() {
       />
       
       <main className="max-w-7xl mx-auto my-8 px-4 flex-1 w-full">
-        {!isAuthenticated && currentView === "home" && (
+        {productsLoading && (
+          <div className="text-center py-10 text-muted-foreground">Loading catalog...</div>
+        )}
+        {apiError && <p className="text-center text-red-600">{apiError}</p>}
+        {!isAuthenticated && currentView === "home" && !productsLoading && (
           <LoginPage onLogin={handleLogin} />
         )}
         {currentView === "admin-login" && (
@@ -224,11 +314,11 @@ export default function App() {
             onNavigateProducts={() => setCurrentView("admin-products")}
           />
         )}
-        {isAuthenticated && currentView === "shop" && (
+        {isAuthenticated && currentView === "shop" && !productsLoading && (
           <Shop products={productsState} onAddToCart={handleAddToCart} />
         )}
         {isAuthenticated && currentView === "contact" && <ContactPage />}
-        {isAuthenticated && currentView === "home" && (
+        {isAuthenticated && currentView === "home" && !productsLoading && (
           <Shop products={productsState} onAddToCart={handleAddToCart} />
         )}
         {isAdminAuthenticated && currentView === "admin-products" && (
@@ -249,10 +339,14 @@ export default function App() {
           />
         )}
         {isAuthenticated && currentView === "orders" && (
-          <OrderStatus
-            orders={orders}
-            onBackToShop={() => handleNavigate("shop")}
-          />
+          ordersLoading ? (
+            <div className="text-center py-10 text-muted-foreground">Loading your orders...</div>
+          ) : (
+            <OrderStatus
+              orders={orders}
+              onBackToShop={() => handleNavigate("shop")}
+            />
+          )
         )}
       </main>
       
