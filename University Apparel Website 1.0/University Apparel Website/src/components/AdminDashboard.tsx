@@ -2,6 +2,7 @@ import { Order } from "../types/product";
 import { Button } from "./ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Separator } from "./ui/separator";
+import { Badge } from "./ui/badge";
 
 interface AdminDashboardProps {
   adminEmail: string;
@@ -49,6 +50,18 @@ export default function AdminDashboard({ adminEmail, orders, onUpdateOrderStatus
                 </div>
               </div>
               <Separator className="my-3" />
+              {order.items && order.items.length > 0 && (
+                <div className="mb-3">
+                  <p className="text-sm text-muted-foreground m-0 mb-2">Ordered Items</p>
+                  <div className="flex flex-wrap gap-2">
+                    {order.items.map((item, idx) => (
+                      <Badge key={`${order.id}-${idx}`} className="bg-[#f1f8e9] text-[#1B5E20] border-[#2E7D32]">
+                        {item.product?.name ?? "Item"} · {item.size} · ×{item.quantity}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-sm">Status:</span>
                 <span className="text-sm px-2 py-1 rounded bg-[#f1f8e9] border border-[#2E7D32]">{order.status}</span>

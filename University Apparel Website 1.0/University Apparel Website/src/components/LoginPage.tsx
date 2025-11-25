@@ -111,21 +111,6 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
             </Button>
           </form>
 
-          <div className="mt-6 text-center">
-            <p className="text-sm text-muted-foreground">
-              Don't have an account?{" "}
-              <a
-                href="#"
-                className="text-[#2E7D32] hover:text-[#1B5E20] transition-colors"
-                onClick={(e) => {
-                  e.preventDefault();
-                  toast.info("New student registration will be available during enrollment period");
-                }}
-              >
-                Register here
-              </a>
-            </p>
-          </div>
         </div>
 
         {/* Info Section */}

@@ -9,6 +9,7 @@ import OrderStatus from "./components/OrderStatus";
 import AdminLoginPage from "./components/AdminLoginPage";
 import AdminDashboard from "./components/AdminDashboard";
 import AdminProducts from "./components/AdminProducts";
+import UserProfile, { UserProfileData } from "./components/UserProfile";
 import { CartItem, Product, Order } from "./types/product";
 import { Toaster } from "./components/ui/sonner";
 import { toast } from "sonner@2.0.3";
@@ -58,6 +59,13 @@ export default function App() {
   const [productsLoading, setProductsLoading] = useState(true);
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [apiError, setApiError] = useState<string | null>(null);
+  const [userProfile, setUserProfile] = useState<UserProfileData>({
+    fullName: "",
+    studentId: "",
+    phone: "",
+    department: "",
+    courseYear: "",
+  });
 
   // Load orders from localStorage so admin can review across sessions
   useEffect(() => {
@@ -118,6 +126,13 @@ export default function App() {
     setUserEmail("");
     setCartItems([]);
     setCurrentView("home");
+    setUserProfile({
+      fullName: "",
+      studentId: "",
+      phone: "",
+      department: "",
+      courseYear: "",
+    });
     toast.info("You have been logged out");
   };
 
@@ -182,6 +197,13 @@ export default function App() {
         }
       );
       setCurrentView("orders");
+      setUserProfile({
+        fullName: order.studentName,
+        studentId: order.studentId,
+        phone: order.phone,
+        department: order.department,
+        courseYear: order.courseYear,
+      });
       await refreshOrders(order.email);
     } catch (error) {
       console.error(error);
@@ -280,6 +302,11 @@ export default function App() {
     }
   };
 
+  const handleUpdateProfile = (profileData: UserProfileData) => {
+    setUserProfile(profileData);
+    toast.success("Profile updated");
+  };
+
   return (
     <div className="min-h-screen flex flex-col bg-[#f9f9f9]">
       <Header
@@ -290,6 +317,7 @@ export default function App() {
         onNavigate={handleNavigate}
         currentView={currentView}
         isAuthenticated={isAuthenticated}
+        isAdminAuthenticated={isAdminAuthenticated}
         userEmail={userEmail}
         onLogout={handleLogout}
       />
@@ -321,6 +349,9 @@ export default function App() {
         {isAuthenticated && currentView === "home" && !productsLoading && (
           <Shop products={productsState} onAddToCart={handleAddToCart} />
         )}
+        {isAuthenticated && currentView === "profile" && (
+          <UserProfile profile={userProfile} email={userEmail} onSave={handleUpdateProfile} />
+        )}
         {isAdminAuthenticated && currentView === "admin-products" && (
           <AdminProducts
             products={productsState}
@@ -336,6 +367,7 @@ export default function App() {
             userEmail={userEmail}
             onSubmitOrder={handleSubmitOrder}
             onCancel={handleCancelReservation}
+            initialProfile={userProfile}
           />
         )}
         {isAuthenticated && currentView === "orders" && (

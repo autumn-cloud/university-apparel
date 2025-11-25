@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
@@ -8,12 +8,14 @@ import { Alert, AlertDescription } from "./ui/alert";
 import { CartItem, DeliveryMethod, Order } from "../types/product";
 import { Package, User, Phone, Mail, GraduationCap, Users, ShoppingBag, Info } from "lucide-react";
 import { toast } from "sonner@2.0.3";
+import { UserProfileData } from "./UserProfile";
 
 interface ReservationFormProps {
   cartItems: CartItem[];
   userEmail: string;
   onSubmitOrder: (order: Order) => void;
   onCancel: () => void;
+  initialProfile?: UserProfileData;
 }
 
 export default function ReservationForm({
@@ -21,6 +23,7 @@ export default function ReservationForm({
   userEmail,
   onSubmitOrder,
   onCancel,
+  initialProfile,
 }: ReservationFormProps) {
   const [formData, setFormData] = useState({
     studentName: "",
@@ -35,6 +38,19 @@ export default function ReservationForm({
   });
 
   const [errors, setErrors] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    if (initialProfile) {
+      setFormData((prev) => ({
+        ...prev,
+        studentName: initialProfile.fullName || prev.studentName,
+        studentId: initialProfile.studentId || prev.studentId,
+        phone: initialProfile.phone || prev.phone,
+        department: initialProfile.department || prev.department,
+        courseYear: initialProfile.courseYear || prev.courseYear,
+      }));
+    }
+  }, [initialProfile]);
 
   const subtotal = cartItems.reduce(
     (sum, item) => sum + item.product.price * item.quantity,
